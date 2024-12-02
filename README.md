@@ -1,12 +1,11 @@
-# Starter Next/Hardhat Project
+# MetaMask Ether Transfer
 
-After cloning the github, you will want to do the following to get the code running on your computer.
+## Description
+This project is a simple web application that interacts with the Ethereum blockchain via MetaMask and allows users to transfer Ether (ETH) between accounts. The application uses the `ethers.js` library to interact with the blockchain, and the smart contract deployed on the Ethereum network provides deposit, withdrawal, and transfer functionality.
 
-1. Inside the project directory, in the terminal type: npm i
-2. Open two additional terminals in your VS code
-3. In the second terminal type: npx hardhat node
-4. In the third terminal, type: npx hardhat run --network localhost scripts/deploy.js
-5. Back in the first terminal, type npm run dev to launch the front-end.
-
-After this, the project will be running on your localhost. 
-Typically at http://localhost:3000/
+## Features
+- **Connect MetaMask Wallet**: Allows users to connect their MetaMask wallet and interact with the Ethereum blockchain.
+- **Check Account Balance**: Users can check the balance of their Ethereum account.
+- **Transfer Ether**: Users can transfer Ether to a recipient address.
+- **Check Recipient Balance**: Users can check the balance of a recipient Ethereum address.
+  

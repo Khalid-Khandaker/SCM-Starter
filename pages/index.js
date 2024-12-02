@@ -1,259 +1,182 @@
 import { useState, useEffect } from "react";
 import { ethers } from "ethers";
-import atm_abi from "../artifacts/contracts/Assessment.sol/Assessment.json";
 
 export default function HomePage() {
-  // State variables
   const [ethWallet, setEthWallet] = useState(undefined);
   const [account, setAccount] = useState(undefined);
-  const [atm, setATM] = useState(undefined);
   const [balance, setBalance] = useState(undefined);
-  const [owner, setOwner] = useState(undefined); // State to store owner address
-  const [isLoading, setIsLoading] = useState(false); // Loading state for transactions
-  const [depositAmount, setDepositAmount] = useState(""); // State for deposit amount
-  const [withdrawAmount, setWithdrawAmount] = useState(""); // State for withdraw amount
+  const [transferAmount, setTransferAmount] = useState("");
+  const [recipient, setRecipient] = useState("");
+  const [recipientBalance, setRecipientBalance] = useState(undefined); // New state for recipient's balance
 
-  const contractAddress = "0x5FbDB2315678afecb367f032d93F642f64180aa3"; // Replace with your deployed contract address
-  const atmABI = atm_abi.abi;
-
-  // Check if Ethereum wallet is available
+  const contractAddress = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
+    
   const getWallet = async () => {
-    try {
-      if (window.ethereum) {
-        setEthWallet(window.ethereum);
-      } else {
-        console.log("MetaMask not detected");
-      }
-
-      if (ethWallet) {
-        const accounts = await ethWallet.request({ method: "eth_accounts" });
-        handleAccount(accounts);
-      }
-    } catch (error) {
-      console.error("Error initializing wallet:", error);
+    if (window.ethereum) {
+      setEthWallet(window.ethereum);
+    }
+    
+    if (ethWallet) {
+      const accounts = await ethWallet.request({ method: "eth_accounts" });
+      handleAccount(accounts);
     }
   };
-
-  // Handle connected account
+  
   const handleAccount = (accounts) => {
-    if (accounts && accounts.length > 0) {
-      console.log("Account connected: ", accounts[0]);
+    if (accounts.length > 0) {
+      console.log("Connected account: ", accounts[0]);
       setAccount(accounts[0]);
+      getBalance(); // Fetch the balance immediately after setting the account
     } else {
-      console.log("No account found");
+      console.log("No accounts found");
     }
   };
-
-  // Connect user's MetaMask wallet
+  
   const connectAccount = async () => {
     if (!ethWallet) {
       alert("MetaMask wallet is required to connect");
       return;
     }
-
-    try {
-      const accounts = await ethWallet.request({ method: "eth_requestAccounts" });
-      handleAccount(accounts);
-
-      // Initialize contract after wallet connection
-      getATMContract();
-    } catch (error) {
-      console.error("Error connecting to account:", error);
+    
+    const accounts = await ethWallet.request({ method: "eth_requestAccounts" });
+    handleAccount(accounts); // This will now also fetch the balance
+  };
+  
+  const getBalance = async () => {
+    if (ethWallet && account) {
+      const provider = new ethers.providers.Web3Provider(ethWallet);
+      const balance = await provider.getBalance(account);
+      setBalance(ethers.utils.formatEther(balance)); // Converts balance to ETH
     }
   };
-
-  // Get a reference to the deployed contract
-  const getATMContract = async () => {
-    try {
+  
+  const transferEther = async () => {
+    if (ethWallet && account) {
+      const amount = parseFloat(transferAmount);
+      if (isNaN(amount) || amount <= 0) {
+        alert("Please enter a valid amount to transfer.");
+        return;
+      }
+      
+      if (!ethers.utils.isAddress(recipient)) {
+        alert("Please enter a valid recipient address.");
+        return;
+      }
+      
       const provider = new ethers.providers.Web3Provider(ethWallet);
       const signer = provider.getSigner();
-      const atmContract = new ethers.Contract(contractAddress, atmABI, signer);
-
-      // Retrieve contract owner and save to state
-      const contractOwner = await atmContract.owner();
-      console.log("Contract Owner:", contractOwner);
-      setOwner(contractOwner);
-
-      setATM(atmContract);
-    } catch (error) {
-      console.error("Error initializing contract:", error);
-    }
-  };
-
-  // Get the current contract balance
-  const getBalance = async () => {
-    try {
-      if (atm) {
-        const currentBalance = await atm.getBalance();
-        // Convert from wei to ether for display
-        setBalance(ethers.utils.formatUnits(currentBalance, "ether"));
+      
+      const balance = await provider.getBalance(account);
+      const gasPrice = await provider.getGasPrice();
+      const estimatedGas = await provider.estimateGas({
+        to: recipient,
+        value: ethers.utils.parseEther(transferAmount),
+      });
+      
+      if (balance.lt(ethers.utils.parseEther(transferAmount).add(estimatedGas.mul(gasPrice)))) {
+        alert("Insufficient balance for the transfer.");
+        return;
       }
-    } catch (error) {
-      console.error("Error fetching balance:", error);
-    }
-  };
-
-  // Deposit amount (owner-only action)
-  const deposit = async () => {
-    try {
-      setIsLoading(true);
-      if (atm && depositAmount > 0) {
-        // Convert deposit amount from ETH to wei
-        const amountInWei = ethers.utils.parseUnits(depositAmount, "ether");
-        const tx = await atm.deposit(amountInWei);
+      
+      try {
+        const tx = await signer.sendTransaction({
+          to: recipient,
+          value: ethers.utils.parseEther(transferAmount),
+        });
         await tx.wait();
-        getBalance(); // Refresh balance after transaction
-      } else {
-        alert("Please enter a valid deposit amount.");
+        alert(`Successfully transferred ${transferAmount} ETH to ${recipient}`);
+        setTransferAmount("");
+        getBalance(); // Refresh balance after the transfer
+      } catch (error) {
+        console.error("Transfer failed:", error);
+        alert("Transfer failed. Please check the transaction details.");
       }
-    } catch (error) {
-      console.error("Error during deposit:", error);
-      alert("Deposit failed. Ensure you are the contract owner.");
-    } finally {
-      setIsLoading(false);
     }
   };
-
-  // Withdraw amount (owner-only action)
-  const withdraw = async () => {
+  
+  const getRecipientBalance = async () => {
+    if (!ethers.utils.isAddress(recipient)) {
+      alert("Please enter a valid recipient address.");
+      return;
+    }
+    
+    const provider = new ethers.providers.Web3Provider(ethWallet);
     try {
-      setIsLoading(true);
-      if (atm && withdrawAmount > 0) {
-        // Convert withdraw amount from ETH to wei
-        const amountInWei = ethers.utils.parseUnits(withdrawAmount, "ether");
-        const tx = await atm.withdraw(amountInWei);
-        await tx.wait();
-        getBalance(); // Refresh balance after transaction
-      } else {
-        alert("Please enter a valid withdrawal amount.");
-      }
+      const balance = await provider.getBalance(recipient);
+      setRecipientBalance(ethers.utils.formatEther(balance));
     } catch (error) {
-      console.error("Error during withdrawal:", error);
-      alert("Withdrawal failed. Ensure you are the contract owner.");
-    } finally {
-      setIsLoading(false);
+      console.error("Failed to fetch recipient balance:", error);
+      alert("Could not retrieve recipient's balance.");
     }
   };
-
-  // Initialize UI elements based on user connection state
+  
   const initUser = () => {
-    // If MetaMask is not installed
     if (!ethWallet) {
       return <p>Please install MetaMask to use this ATM.</p>;
     }
-
-    // If account is not connected
+    
     if (!account) {
-      return <button className="button" onClick={connectAccount}>Connect MetaMask Wallet</button>;
+      return <button onClick={connectAccount}>Connect MetaMask Wallet</button>;
     }
-
-    // Fetch balance if not already set
-    if (balance === undefined) {
-      getBalance();
-    }
-
+    
     return (
-      <div className="atm-info">
+      <div>
         <p>Your Account: {account}</p>
-        <p>Contract Owner: {owner || "Loading..."}</p>
-        <p>Your Balance: {balance !== undefined ? `${balance} ETH` : "Loading..."}</p>
-
-        {/* Deposit Amount Input */}
-        <div className="input-container">
-          <label htmlFor="depositAmount">Deposit Amount (ETH): </label>
+        <p>Your Balance: {balance} ETH</p>
+        <div>
+          <input
+            type="text"
+            placeholder="Enter recipient address"
+            value={recipient}
+            onChange={(e) => setRecipient(e.target.value)}
+            />
           <input
             type="number"
-            id="depositAmount"
-            value={depositAmount}
-            onChange={(e) => setDepositAmount(e.target.value)}
-            placeholder="Enter amount"
-          />
-          <button className="button" onClick={deposit} disabled={isLoading}>
-            {isLoading ? "Depositing..." : "Deposit"}
-          </button>
+            placeholder="Enter amount to transfer"
+            value={transferAmount}
+            onChange={(e) => setTransferAmount(e.target.value)}
+            />
+          <button onClick={transferEther}>Transfer ETH</button>
         </div>
-
-        {/* Withdraw Amount Input */}
-        <div className="input-container">
-          <label htmlFor="withdrawAmount">Withdraw Amount (ETH): </label>
-          <input
-            type="number"
-            id="withdrawAmount"
-            value={withdrawAmount}
-            onChange={(e) => setWithdrawAmount(e.target.value)}
-            placeholder="Enter amount"
-          />
-          <button className="button" onClick={withdraw} disabled={isLoading}>
-            {isLoading ? "Withdrawing..." : "Withdraw"}
-          </button>
+        <div>
+          <button onClick={getRecipientBalance}>Check Recipient Balance</button>
+          {recipientBalance !== undefined && (
+            <p>Recipient's Balance: {recipientBalance} ETH</p>
+          )}
         </div>
       </div>
     );
   };
-
-  // Fetch wallet on initial render
   useEffect(() => {
     getWallet();
   }, []);
+  
+  useEffect(() => {
+    if (account) {
+      getBalance(); // Automatically fetch balance when account changes
+    }
+  }, [account]);
 
+  console.log(contractAddress);
+  
   return (
     <main className="container">
       <header>
-        <h1>Welcome to the Metacrafters ATM!</h1>
+        <h1>Welcome to the MetaMask Ether Transfer!</h1>
       </header>
       {initUser()}
       <style jsx>{`
         .container {
           text-align: center;
-          background: linear-gradient(145deg, #6a11cb, #2575fc);
-          color: white;
-          padding: 40px;
-          border-radius: 10px;
-          box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-        }
-        header h1 {
-          font-size: 36px;
-          margin-bottom: 20px;
-        }
-        .atm-info {
-          background: #f9f9f9;
-          color: #333;
-          padding: 20px;
-          border-radius: 10px;
-          box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-        }
-        .input-container {
-          margin: 15px 0;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-        input {
-          padding: 10px;
-          font-size: 16px;
-          border: 2px solid #ddd;
-          border-radius: 5px;
-          margin-left: 10px;
-          width: 200px;
-        }
-        button {
-          padding: 10px 20px;
-          background-color: #2575fc;
-          border: none;
-          border-radius: 5px;
-          color: white;
-          font-size: 16px;
-          cursor: pointer;
-          transition: background-color 0.3s ease;
-          margin-left: 10px;
-        }
-        button:hover {
-          background-color: #1a5db9;
-        }
-        button:disabled {
-          background-color: #b0b0b0;
-        }
-      `}</style>
+          }
+          input {
+            margin-right: 10px;
+            padding: 5px;
+            }
+            `}</style>
     </main>
   );
+  
 }
+
+
